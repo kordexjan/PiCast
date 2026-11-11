@@ -62,7 +62,9 @@ build/test_crop: tests/crop_driver.c $(LIBRARY)
 build/test_config: tests/config_driver.c $(LIBRARY)
 build/test_%:
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(firstword $^) $(LIBRARY) $(LDFLAGS) $(LDLIBS) -o $@
-# Radio queries with every netlink call intercepted by the test.
+# Radio queries with every netlink call intercepted by the test (link-time
+# wrapping; the sanitizers intercept the same calls, so `make sanitize` skips it).
+WRAPPED_TESTS ?= 1
 build/test_firmware_awake: tests/firmware_awake_driver.c $(LIBRARY)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(firstword $^) $(LIBRARY) -Wl,--wrap=socket,--wrap=bind,--wrap=close,--wrap=if_nametoindex,--wrap=poll,--wrap=sendto,--wrap=recvfrom $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -85,7 +87,7 @@ test: build/picast build/picast-power $(TESTS:%=build/test_%) build/test_firmwar
 	./build/test_guard
 	./build/test_crop
 	./build/test_config
-	./build/test_firmware_awake
+	if [ "$(WRAPPED_TESTS)" = 1 ]; then ./build/test_firmware_awake; fi
 	python3 -m unittest discover -s tests -p 'test_*.py'
 	./build/picast version
 
@@ -96,7 +98,7 @@ namespace-test: build/test_media_namespace
 
 sanitize:
 	$(MAKE) clean
-	$(MAKE) test CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' \
+	$(MAKE) test WRAPPED_TESTS=0 CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' \
 		LDFLAGS='-fsanitize=address,undefined' PLAYFAIR_SANITIZE='-fsanitize=address,undefined'
 
 clean:
