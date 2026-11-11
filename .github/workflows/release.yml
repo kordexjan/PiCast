@@ -113,7 +113,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          base=$(cat dist/base.txt)
+          base=$(cat "$(find dist -name base.txt | head -n1)")
           cat > notes.md <<NOTES
           **Two ways to install** (see the README for step-by-step instructions):
 
@@ -122,5 +122,8 @@ jobs:
 
           ${base}
           NOTES
+          # Artifacts keep their folders (the image arrives as dist/dist/…): collect them.
+          mapfile -t files < <(find dist -type f \( -name picast-install.sh -o -name 'picast-*.img.xz' -o -name 'picast-*.img.xz.sha256' \))
+          [ "${#files[@]}" -eq 3 ] || { printf '%s\n' "${files[@]}"; exit 1; }
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "PiCast $GITHUB_REF_NAME" \
-            --notes-file notes.md dist/picast-install.sh dist/picast-*.img.xz dist/picast-*.img.xz.sha256
+            --notes-file notes.md "${files[@]}"
