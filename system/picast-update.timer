@@ -1,0 +1,11 @@
+[Unit]
+Description=PiCast system updates in maintenance mode
+
+[Timer]
+# Shortly after a maintenance boot, then daily while it stays in maintenance.
+OnBootSec=5min
+OnUnitActiveSec=1d
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

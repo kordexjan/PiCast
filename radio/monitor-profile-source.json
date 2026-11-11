@@ -1,0 +1,11 @@
+{
+  "upstream_commit": "68720406f54ff16cad28fd3c51f2392aefad9fb7",
+  "original_sha256": "37821862a66f180585bdf70d1e6109efc8873a3d9c8cc05c3c58908d23edfec3",
+  "patched_sha256": "2ecaac52ec8b8e16956b1b0fbc9fa544e0fc68103d98d79900f5261bfa761f0a",
+  "rom_allocator_page_sha256": "dbb5cd6fe3d1a32aabfeecf104f2ded4a89eede5bf61e488e99c083f4dccc372",
+  "heap_allocator_entry": "0x807b91",
+  "shared_pool_fallback": "disabled only for optional monitor copies",
+  "superseded_patch_sha256": [
+    "ee25edfcee44a1a6b2929dc6305c4c6733bbb1459422506d498fbd4b996186ef"
+  ]
+}

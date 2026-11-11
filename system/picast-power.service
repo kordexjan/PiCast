@@ -1,0 +1,13 @@
+[Unit]
+Description=PiCast battery guard: clean shutdown before the battery runs empty
+After=local-fs.target
+
+[Service]
+ExecStart=/opt/picast/bin/picast-power guard
+Restart=always
+RestartSec=10
+# Reads the battery chip and draws one notice; nothing else.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+name: Tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libssl-dev libplist-dev libcairo2-dev \
+            libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev python3-cryptography shellcheck
+      - run: make -j4 test
+      - name: Network namespace test (root, no host changes)
+        run: sudo make namespace-test
+      - name: AddressSanitizer and UBSan
+        run: make -j4 sanitize
+      - run: shellcheck -S warning tools/*.sh

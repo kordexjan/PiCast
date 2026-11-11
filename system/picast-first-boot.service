@@ -1,0 +1,15 @@
+[Unit]
+Description=PiCast: finish the first start of the SD card image
+# cloud-init applies the Raspberry Pi Imager's settings (user, WLAN, SSH) once;
+# afterwards it only costs start-up time.
+After=cloud-final.service
+ConditionPathExists=!/var/lib/picast/first-boot-done
+
+[Service]
+Type=oneshot
+ExecStart=-/bin/systemctl disable cloud-init-local.service cloud-init-main.service cloud-init-network.service cloud-init.service cloud-config.service cloud-final.service
+ExecStart=/bin/mkdir -p /var/lib/picast
+ExecStart=/bin/touch /var/lib/picast/first-boot-done
+
+[Install]
+WantedBy=multi-user.target

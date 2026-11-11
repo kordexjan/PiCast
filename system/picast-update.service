@@ -1,0 +1,12 @@
+[Unit]
+Description=PiCast system updates (maintenance mode only)
+RequiresMountsFor=/boot/firmware
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecCondition=/opt/picast/bin/picast config maintenance
+ExecStart=/opt/picast/bin/picast-setup --update
+Nice=10
+IOSchedulingClass=idle

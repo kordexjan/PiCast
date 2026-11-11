@@ -1,0 +1,126 @@
+name: Release
+# Builds both ways to install PiCast from one source:
+#   picast-install.sh        installer for an existing Raspberry Pi OS Lite (64-bit)
+#   picast-VERSION.img.xz    ready-to-flash SD card image (Raspberry Pi OS Lite with PiCast)
+# The radio firmware and driver source come from the pinned Nexmon tree (x86-64).
+# A tag v* publishes a GitHub release with both files.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  radio:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: work/nexmon
+          key: nexmon-68720406-v1
+      - run: sudo dpkg --add-architecture i386 && sudo apt-get update -q && sudo apt-get install -y -q gawk qpdf xxd libc6:i386
+      - run: tools/build_radio.sh work radio
+      - uses: actions/upload-artifact@v4
+        with:
+          name: radio
+          path: radio
+
+  installer:
+    needs: radio
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.pack.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: radio
+          path: radio-build
+      - name: Pack picast-install.sh
+        id: pack
+        run: |
+          version=$(git describe --tags --always)
+          mkdir -p dist
+          tools/make_installer.sh radio-build "$version" dist/picast-install.sh
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Build check on Raspberry Pi OS packages (arm64)
+        run: |
+          mkdir payload
+          start=$(awk '/^__PICAST_PAYLOAD__$/{print NR + 1; exit}' dist/picast-install.sh)
+          tail -n +"$start" dist/picast-install.sh | tar -xz -C payload
+          docker run --rm --platform linux/arm64 -v "$PWD:/w" -w /w debian:trixie \
+            bash tools/ci_build_check.sh /w/payload | tee dist/build-check.txt
+      - name: Same driver as the hardware-tested one
+        run: |
+          tail -n1 dist/build-check.txt | grep -q '"srcversion":"460938AA8FC406B885AAFCE"' ||
+            echo "::warning::Driver srcversion differs from the hardware-tested r4 build"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: picast-install
+          path: dist/picast-install.sh
+
+  image:
+    needs: installer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: picast-install
+          path: dist
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q parted zerofree xz-utils e2fsprogs
+      - name: Raspberry Pi OS Lite (64-bit), newest release
+        run: |
+          url=$(curl -fsSIL -o /dev/null -w '%{url_effective}' https://downloads.raspberrypi.com/raspios_lite_arm64_latest)
+          curl -fsSLo base.img.xz "$url"
+          curl -fsSL "$url.sha256" | awk '{print $1"  base.img.xz"}' | sha256sum -c
+          echo "Base image: $(basename "$url")" | tee base.txt
+      - name: Build the SD card image
+        run: |
+          version=${{ needs.installer.outputs.version }}
+          sudo tools/build_image.sh base.img.xz dist/picast-install.sh "dist/picast-$version.img.xz"
+          sudo chown -R "$(id -u)" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: picast-image
+          path: |
+            dist/picast-*.img.xz
+            dist/picast-*.img.xz.sha256
+            base.txt
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [installer, image]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=$(cat dist/base.txt)
+          cat > notes.md <<NOTES
+          **Two ways to install** (see the README for step-by-step instructions):
+
+          - **picast-${GITHUB_REF_NAME}.img.xz**: write it to a microSD card with the Raspberry Pi Imager or balenaEtcher, put the card into a Raspberry Pi Zero 2 W, done. No WLAN needed.
+          - **picast-install.sh**: installs PiCast on an existing Raspberry Pi OS Lite (64-bit). Needs WLAN with internet once.
+
+          ${base}
+          NOTES
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "PiCast $GITHUB_REF_NAME" \
+            --notes-file notes.md dist/picast-install.sh dist/picast-*.img.xz dist/picast-*.img.xz.sha256

@@ -1,0 +1,20 @@
+# PiCast settings
+#
+# Edit this file on any computer: it is on the SD card's drive called "bootfs".
+# Save it, put the card back into the Pi and switch the Pi on again.
+# A line that starts with # is a comment. Invalid values keep their default.
+
+# The name in the Screen Mirroring list on your iPhone, iPad or Mac
+# (up to 40 characters).
+name = PiCast
+
+# Language of the PiCast screens: en (English) or de (Deutsch).
+language = en
+
+# Delay of picture and sound in milliseconds, 100 to 500 (default 270).
+# Lower feels quicker; raise it if the picture or sound stutters now and then.
+delay = 270
+
+# Maintenance mode: on starts the Pi as a normal Raspberry Pi with WLAN and SSH
+# instead of PiCast (for updates). Set it back to off for PiCast.
+maintenance = off

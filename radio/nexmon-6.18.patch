@@ -1,0 +1,596 @@
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/bcmsdh.c b/patches/driver/brcmfmac_6.6.y-nexmon/bcmsdh.c
+index ac02244..aff7e0f 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/bcmsdh.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/bcmsdh.c
+@@ -991,7 +991,7 @@ static const struct sdio_device_id brcmf_sdmmc_ids[] = {
+ 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_4359),
+ 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_4373),
+ 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_43012),
+-	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_43752),
++	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_43752),
+ 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_89359),
+ 	{ /* end: all zeroes */ }
+ };
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/btcoex.c b/patches/driver/brcmfmac_6.6.y-nexmon/btcoex.c
+index f9f18ff..ff367cf 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/btcoex.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/btcoex.c
+@@ -272,7 +272,7 @@ static void brcmf_btcoex_restore_part1(struct brcmf_btcoex_info *btci)
+  */
+ static void brcmf_btcoex_timerfunc(struct timer_list *t)
+ {
+-	struct brcmf_btcoex_info *bt_local = from_timer(bt_local, t, timer);
++	struct brcmf_btcoex_info *bt_local = timer_container_of(bt_local, t, timer);
+ 	brcmf_dbg(TRACE, "enter\n");
+ 
+ 	bt_local->timer_on = false;
+@@ -289,7 +289,7 @@ static void brcmf_btcoex_handler(struct work_struct *work)
+ 	btci = container_of(work, struct brcmf_btcoex_info, work);
+ 	if (btci->timer_on) {
+ 		btci->timer_on = false;
+-		del_timer_sync(&btci->timer);
++		timer_delete_sync(&btci->timer);
+ 	}
+ 
+ 	switch (btci->bt_state) {
+@@ -394,7 +394,7 @@ void brcmf_btcoex_detach(struct brcmf_cfg80211_info *cfg)
+ 
+ 	if (cfg->btcoex->timer_on) {
+ 		cfg->btcoex->timer_on = false;
+-		del_timer_sync(&cfg->btcoex->timer);
++		timer_delete_sync(&cfg->btcoex->timer);
+ 	}
+ 
+ 	cancel_work_sync(&cfg->btcoex->work);
+@@ -428,7 +428,7 @@ static void brcmf_btcoex_dhcp_end(struct brcmf_btcoex_info *btci)
+ 	if (btci->timer_on) {
+ 		brcmf_dbg(INFO, "disable BT DHCP Timer\n");
+ 		btci->timer_on = false;
+-		del_timer_sync(&btci->timer);
++		timer_delete_sync(&btci->timer);
+ 
+ 		/* schedule worker if transition to IDLE is needed */
+ 		if (btci->bt_state != BRCMF_BT_DHCP_IDLE) {
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.c b/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.c
+index b4e5f45..93fa383 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.c
+@@ -7,6 +7,7 @@
+ 
+ #define NEXMON_MON_IF
+ 
++
+ #include <linux/kernel.h>
+ #include <linux/etherdevice.h>
+ #include <linux/module.h>
+@@ -16,6 +17,7 @@
+ #include <net/netlink.h>
+ #include <uapi/linux/if_arp.h>
+ 
++#include <brcm_hw_ids.h>
+ #include <brcmu_utils.h>
+ #include <defs.h>
+ #include <brcmu_wifi.h>
+@@ -35,6 +37,19 @@
+ #include "bus.h"
+ #include "common.h"
+ 
++/* PiCast research: monitor advertisement is explicitly opt-in. */
++static bool picast_monitor;
++module_param_named(picast_monitor, picast_monitor, bool, 0400);
++MODULE_PARM_DESC(picast_monitor, "Experimental BCM43430 monitor mode; requires qualified firmware");
++
++bool brcmf_picast_monitor_active(struct brcmf_pub *drvr)
++{
++	return picast_monitor &&
++		drvr->bus_if->chip == BRCM_CC_43430_CHIP_ID &&
++		drvr->bus_if->chiprev == 2;
++}
++
++
+ #define BRCMF_SCAN_IE_LEN_MAX		2048
+ 
+ #define WPA_OUI				"\x00\x50\xF2"	/* WPA OUI */
+@@ -765,7 +780,7 @@ static struct wireless_dev *brcmf_cfg80211_add_iface(struct wiphy *wiphy,
+ 
+ #ifdef NEXMON_MON_IF
+ static s32
+-brcmf_cfg80211_nexmon_set_channel(struct wiphy *wiphy,struct cfg80211_chan_def *chandef) {
++brcmf_cfg80211_nexmon_set_channel(struct wiphy *wiphy, struct net_device *ndev, struct cfg80211_chan_def *chandef) {
+ 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+ 	struct brcmf_if *ifp = netdev_priv(cfg_to_ndev(cfg));
+ 	s32 err = 0;
+@@ -777,7 +792,7 @@ brcmf_cfg80211_nexmon_set_channel(struct wiphy *wiphy,struct cfg80211_chan_def *
+ 	if (err < 0) {
+ 		brcmf_err("Set Channel failed: chspec=%d, %d\n", chanspec, err);
+ 	}
+-	return 0;
++	return err;
+ }
+ #endif
+ 
+@@ -821,7 +836,7 @@ s32 brcmf_notify_escan_complete(struct brcmf_cfg80211_info *cfg,
+ 	cfg->scan_request = NULL;
+ 
+ 	if (timer_pending(&cfg->escan_timeout))
+-		del_timer_sync(&cfg->escan_timeout);
++		timer_delete_sync(&cfg->escan_timeout);
+ 
+ 	if (fw_abort) {
+ 		/* Do a scan abort to stop the driver's scan engine */
+@@ -1311,7 +1326,7 @@ static s32 brcmf_set_retry(struct net_device *ndev, u32 retry, bool l)
+ 	return err;
+ }
+ 
+-static s32 brcmf_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed)
++static s32 brcmf_cfg80211_set_wiphy_params(struct wiphy *wiphy, int radio_idx, u32 changed)
+ {
+ 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+ 	struct net_device *ndev = cfg_to_ndev(cfg);
+@@ -2319,7 +2334,7 @@ brcmf_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *ndev,
+ 
+ static s32
+ brcmf_cfg80211_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
+-			    enum nl80211_tx_power_setting type, s32 mbm)
++			    int radio_idx, enum nl80211_tx_power_setting type, s32 mbm)
+ {
+ 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+ 	struct net_device *ndev = cfg_to_ndev(cfg);
+@@ -2370,7 +2385,7 @@ done:
+ 
+ static s32
+ brcmf_cfg80211_get_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
+-			    s32 *dbm)
++			    int radio_idx, unsigned int link_id, s32 *dbm)
+ {
+ 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+ 	struct brcmf_cfg80211_vif *vif = wdev_to_vif(wdev);
+@@ -3048,7 +3063,6 @@ static s32 brcmf_inform_single_bss(struct brcmf_cfg80211_info *cfg,
+ 
+ 	freq = ieee80211_channel_to_frequency(channel, band);
+ 	bss_data.chan = ieee80211_get_channel(wiphy, freq);
+-	bss_data.scan_width = NL80211_BSS_CHAN_WIDTH_20;
+ 	bss_data.boottime_ns = ktime_to_ns(ktime_get_boottime());
+ 
+ 	notify_capability = le16_to_cpu(bi->capability);
+@@ -3271,7 +3285,7 @@ static void brcmf_cfg80211_escan_timeout_worker(struct work_struct *work)
+ static void brcmf_escan_timeout(struct timer_list *t)
+ {
+ 	struct brcmf_cfg80211_info *cfg =
+-			from_timer(cfg, t, escan_timeout);
++			timer_container_of(cfg, t, escan_timeout);
+ 	struct brcmf_pub *drvr = cfg->pub;
+ 
+ 	if (cfg->int_escan_map || cfg->scan_request) {
+@@ -5057,14 +5071,14 @@ static int brcmf_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *ndev,
+ 
+ static s32
+ brcmf_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *ndev,
+-			     struct cfg80211_beacon_data *info)
++			     struct cfg80211_ap_update *info)
+ {
+ 	struct brcmf_if *ifp = netdev_priv(ndev);
+ 	s32 err;
+ 
+ 	brcmf_dbg(TRACE, "Enter\n");
+ 
+-	err = brcmf_config_ap_mgmt_ie(ifp->vif, info);
++	err = brcmf_config_ap_mgmt_ie(ifp->vif, &info->beacon);
+ 
+ 	return err;
+ }
+@@ -7038,7 +7052,8 @@ static int brcmf_setup_ifmodes(struct wiphy *wiphy, struct brcmf_if *ifp)
+ 
+ /* NEXMON */
+ #ifdef NEXMON_MON_IF
+-	mon_flag = true;
++	mon_flag = brcmf_feat_is_enabled(ifp, BRCMF_FEAT_MONITOR_FLAG) ||
++		brcmf_picast_monitor_active(ifp->drvr);
+ #else
+ 	mon_flag = brcmf_feat_is_enabled(ifp, BRCMF_FEAT_MONITOR_FLAG);
+ #endif
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.h b/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.h
+index e90a308..52f30a9 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.h
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/cfg80211.h
+@@ -467,5 +467,6 @@ s32 brcmf_notify_escan_complete(struct brcmf_cfg80211_info *cfg,
+ void brcmf_set_mpc(struct brcmf_if *ndev, int mpc);
+ void brcmf_abort_scanning(struct brcmf_cfg80211_info *cfg);
+ void brcmf_cfg80211_free_netdev(struct net_device *ndev);
++bool brcmf_picast_monitor_active(struct brcmf_pub *drvr);
+ 
+ #endif /* BRCMFMAC_CFG80211_H */
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/common.c b/patches/driver/brcmfmac_6.6.y-nexmon/common.c
+index 80efd80..6f839c4 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/common.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/common.c
+@@ -22,6 +22,7 @@
+ #include "chip.h"
+ 
+ MODULE_AUTHOR("Broadcom Corporation");
++MODULE_VERSION("picast-lab-6.18-r4");
+ MODULE_DESCRIPTION("Broadcom 802.11 wireless LAN fullmac driver.");
+ MODULE_LICENSE("Dual BSD/GPL");
+ 
+@@ -240,7 +241,7 @@ int brcmf_c_preinit_dcmds(struct brcmf_if *ifp)
+ 				     &revinfo, sizeof(revinfo));
+ 	if (err < 0) {
+ 		bphy_err(drvr, "retrieving revision info failed, %d\n", err);
+-		strlcpy(ri->chipname, "UNKNOWN", sizeof(ri->chipname));
++		strscpy(ri->chipname, "UNKNOWN", sizeof(ri->chipname));
+ 	} else {
+ 		ri->vendorid = le32_to_cpu(revinfo.vendorid);
+ 		ri->deviceid = le32_to_cpu(revinfo.deviceid);
+@@ -293,7 +294,7 @@ int brcmf_c_preinit_dcmds(struct brcmf_if *ifp)
+ 
+ 	/* locate firmware version number for ethtool */
+ 	ptr = strrchr(buf, ' ') + 1;
+-	strlcpy(ifp->drvr->fwver, ptr, sizeof(ifp->drvr->fwver));
++	strscpy(ifp->drvr->fwver, ptr, sizeof(ifp->drvr->fwver));
+ 
+ 	/* Query for 'clmver' to get CLM version info from firmware */
+ 	memset(buf, 0, sizeof(buf));
+@@ -403,11 +404,11 @@ static void brcmf_mp_attach(void)
+ 	 * if not set then if available use the platform data version. To make
+ 	 * sure it gets initialized at all, always copy the module param version
+ 	 */
+-	strlcpy(brcmf_mp_global.firmware_path, brcmf_firmware_path,
++	strscpy(brcmf_mp_global.firmware_path, brcmf_firmware_path,
+ 		BRCMF_FW_ALTPATH_LEN);
+ 	if ((brcmfmac_pdata) && (brcmfmac_pdata->fw_alternative_path) &&
+ 	    (brcmf_mp_global.firmware_path[0] == '\0')) {
+-		strlcpy(brcmf_mp_global.firmware_path,
++		strscpy(brcmf_mp_global.firmware_path,
+ 			brcmfmac_pdata->fw_alternative_path,
+ 			BRCMF_FW_ALTPATH_LEN);
+ 	}
+@@ -487,14 +488,13 @@ static int __init brcmf_common_pd_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int brcmf_common_pd_remove(struct platform_device *pdev)
++static void brcmf_common_pd_remove(struct platform_device *pdev)
+ {
+ 	brcmf_dbg(INFO, "Enter\n");
+ 
+ 	if (brcmfmac_pdata->power_off)
+ 		brcmfmac_pdata->power_off();
+ 
+-	return 0;
+ }
+ 
+ static struct platform_driver brcmf_pd = {
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/core.c b/patches/driver/brcmfmac_6.6.y-nexmon/core.c
+index 93b9c9f..3d2fdde 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/core.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/core.c
+@@ -31,13 +31,10 @@
+ /* NEXMON */
+ #include <linux/if_arp.h>
+ #include <linux/netlink.h>
+-#include "nexmon_ioctls.h"
+ #include "defs.h"
+ #include "sdio.h"
+ 
+ /* NEXMON */
+-#define NETLINK_USER                     31
+-#define NEXUDP_IOCTL                      0
+ 
+ #define MONITOR_DISABLED  0
+ #define MONITOR_IEEE80211 1
+@@ -80,75 +77,6 @@ struct wlc_d11rxhdr {
+ 	s8 rxpwr[4];
+ } __packed;
+ 
+- /*NEXMON*/
+-static struct netlink_kernel_cfg cfg = {0};
+-static struct sock *nl_sock = NULL;
+-static struct net_device *ndev_global = NULL;
+-
+- struct nexudp_header {
+-    char nex[3];
+-    char type;
+-    int securitycookie;
+-} __attribute__((packed));
+-
+- struct nexudp_ioctl_header {
+-    struct nexudp_header nexudphdr;
+-    unsigned int cmd;
+-    unsigned int set;
+-    char payload[1];
+-} __attribute__((packed));
+-
+- static void
+-nexmon_nl_ioctl_handler(struct sk_buff *skb)
+-{
+-    struct nlmsghdr *nlh = (struct nlmsghdr *) skb->data;
+-    struct nexudp_ioctl_header *frame = (struct nexudp_ioctl_header *) nlmsg_data(nlh);
+-    struct brcmf_if *ifp = netdev_priv(ndev_global);
+-    struct sk_buff *skb_out;
+-    struct nlmsghdr *nlh_tx;
+-
+-     brcmf_err("NEXMON: %s: Enter\n", __FUNCTION__);
+-
+-     brcmf_err("NEXMON: %s: %08x %d %d\n", __FUNCTION__, *(int *) frame->nexudphdr.nex, nlmsg_len(nlh), skb->len);
+-
+-     if (memcmp(frame->nexudphdr.nex, "NEX", 3)) {
+-        brcmf_err("NEXMON: %s: invalid nexudp_ioctl_header\n", __FUNCTION__);
+-        return;
+-    }
+-
+-     if (frame->nexudphdr.type != NEXUDP_IOCTL) {
+-        brcmf_err("NEXMON: %s: invalid frame type\n", __FUNCTION__);
+-        return;
+-    }
+-
+-     if (ifp == NULL) {
+-        brcmf_err("NEXMON: %s: ifp is NULL\n", __FUNCTION__);
+-        return;
+-    }
+-
+-     if (frame->set) {
+-        brcmf_err("NEXMON: %s: calling brcmf_fil_cmd_data_set, cmd: %d\n", __FUNCTION__, frame->cmd);
+-        brcmf_fil_cmd_data_set(ifp, frame->cmd, frame->payload, nlmsg_len(nlh) - sizeof(struct nexudp_ioctl_header) + sizeof(char));
+-
+-        skb_out = nlmsg_new(4, 0);
+-        nlh_tx = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, 4, 0);
+-        NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
+-        memcpy(nlmsg_data(nlh_tx), "ACK", 4);
+-        nlmsg_unicast(nl_sock, skb_out, nlh->nlmsg_pid);
+-    } else {
+-        brcmf_err("NEXMON: %s: calling brcmf_fil_cmd_data_get, cmd: %d\n", __FUNCTION__, frame->cmd);
+-        brcmf_fil_cmd_data_get(ifp, frame->cmd, frame->payload, nlmsg_len(nlh) - sizeof(struct nexudp_ioctl_header) + sizeof(char));
+-
+-         skb_out = nlmsg_new(nlmsg_len(nlh), 0);
+-        nlh_tx = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, nlmsg_len(nlh), 0);
+-        NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
+-        memcpy(nlmsg_data(nlh_tx), frame, nlmsg_len(nlh));
+-        nlmsg_unicast(nl_sock, skb_out, nlh->nlmsg_pid);
+-    }
+-
+-     brcmf_err("NEXMON: %s: Exit\n", __FUNCTION__);
+-}
+-
+ char *brcmf_ifname(struct brcmf_if *ifp)
+ {
+ 	if (!ifp)
+@@ -647,10 +575,10 @@ static void brcmf_ethtool_get_drvinfo(struct net_device *ndev,
+ 
+ 	if (drvr->revinfo.result == 0)
+ 		brcmu_dotrev_str(drvr->revinfo.driverrev, drev);
+-	strlcpy(info->driver, KBUILD_MODNAME, sizeof(info->driver));
+-	strlcpy(info->version, drev, sizeof(info->version));
+-	strlcpy(info->fw_version, drvr->fwver, sizeof(info->fw_version));
+-	strlcpy(info->bus_info, dev_name(drvr->bus_if->dev),
++	strscpy(info->driver, KBUILD_MODNAME, sizeof(info->driver));
++	strscpy(info->version, drev, sizeof(info->version));
++	strscpy(info->fw_version, drvr->fwver, sizeof(info->fw_version));
++	strscpy(info->bus_info, dev_name(drvr->bus_if->dev),
+ 		sizeof(info->bus_info));
+ }
+ 
+@@ -723,8 +651,6 @@ int brcmf_net_attach(struct brcmf_if *ifp, bool locked)
+ 		  ifp->mac_addr);
+ 	ndev = ifp->ndev;
+ 
+-	/* NEXMON */
+-    ndev_global = ndev;
+ 
+ 	/* set appropriate operations */
+ 	ndev->netdev_ops = &brcmf_netdev_ops_pri;
+@@ -831,6 +757,9 @@ static const struct net_device_ops brcmf_netdev_ops_mon = {
+ 	.ndo_open = brcmf_net_mon_open,
+ 	.ndo_stop = brcmf_net_mon_stop,
+ 	.ndo_start_xmit = brcmf_netdev_start_xmit,
++	/* Keep the firmware BSS address and monitor netdevice in agreement. */
++	.ndo_set_mac_address = brcmf_netdev_set_mac_address,
++	.ndo_validate_addr = eth_validate_addr,
+ };
+ 
+ int brcmf_net_mon_attach(struct brcmf_if *ifp)
+@@ -843,6 +772,11 @@ int brcmf_net_mon_attach(struct brcmf_if *ifp)
+ 
+ 	ndev = ifp->ndev;
+ 	ndev->netdev_ops = &brcmf_netdev_ops_mon;
++	if (!is_valid_ether_addr(ifp->mac_addr))
++		return -EADDRNOTAVAIL;
++	eth_hw_addr_set(ndev, ifp->mac_addr);
++	dev_net_set(ndev, wiphy_net(cfg_to_wiphy(drvr->config)));
++	ndev->needed_headroom += drvr->hdrlen;
+ 
+ 	err = cfg80211_register_netdevice(ndev);
+ 	if (err)
+@@ -1272,7 +1206,6 @@ static ssize_t bus_reset_write(struct file *file, const char __user *user_buf,
+ 
+ static const struct file_operations bus_reset_fops = {
+ 	.open	= simple_open,
+-	.llseek	= no_llseek,
+ 	.write	= bus_reset_write,
+ };
+ 
+@@ -1489,6 +1422,17 @@ void brcmf_fw_crashed(struct device *dev)
+ 
+ 	brcmf_dev_coredump(dev);
+ 
++	/* The opt-in PiCast lab has an independently armed recovery supervisor.
++	 * SDIO bus_reset recursively detaches this device; racing it with that
++	 * supervisor's module unload caused the observed NULL pno detach fault.
++	 * Keep the dump, but give teardown to exactly one owner in this mode.
++	 * Ordinary operation and other chips retain their normal reset path.
++	 */
++	if (brcmf_picast_monitor_active(drvr)) {
++		bphy_err(drvr, "PiCast monitor: firmware crash recovery owned by external supervisor; skipping asynchronous bus reset\n");
++		return;
++	}
++
+ 	schedule_work(&drvr->bus_reset);
+ }
+ 
+@@ -1620,13 +1564,6 @@ int __init brcmf_core_init(void)
+ 	if (err)
+ 		goto error_pcie_register;
+ 
+-	/* NEXMON netlink init */
+-	cfg.input = nexmon_nl_ioctl_handler;
+-	nl_sock = netlink_kernel_create(&init_net, NETLINK_USER, &cfg);
+-	if (!nl_sock) {
+-		brcmf_err("NEXMON: %s: Error creating netlink socket\n", __FUNCTION__);
+-		return -1;
+-	}
+ 
+ 	return 0;
+ 
+@@ -1639,8 +1576,6 @@ error_usb_register:
+ 
+ void __exit brcmf_core_exit(void)
+ {
+-	/* NEXMON */
+-    netlink_kernel_release(nl_sock);
+ 
+ 	brcmf_sdio_exit();
+ 	brcmf_usb_exit();
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/firmware.c b/patches/driver/brcmfmac_6.6.y-nexmon/firmware.c
+index 22a0562..60e39b4 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/firmware.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/firmware.c
+@@ -788,7 +788,7 @@ brcmf_fw_alloc_request(u32 chip, u32 chiprev,
+ 		fwnames[j].path[0] = '\0';
+ 		/* check if firmware path is provided by module parameter */
+ 		if (brcmf_mp_global.firmware_path[0] != '\0') {
+-			strlcpy(fwnames[j].path, mp_path,
++			strscpy(fwnames[j].path, mp_path,
+ 				BRCMF_FW_NAME_LEN);
+ 
+ 			if (end != '/') {
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/fweh.h b/patches/driver/brcmfmac_6.6.y-nexmon/fweh.h
+index 48414e8..8cef49b 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/fweh.h
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/fweh.h
+@@ -7,7 +7,7 @@
+ #ifndef FWEH_H_
+ #define FWEH_H_
+ 
+-#include <asm/unaligned.h>
++#include <linux/unaligned.h>
+ #include <linux/skbuff.h>
+ #include <linux/if_ether.h>
+ #include <linux/if.h>
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/fwsignal.c b/patches/driver/brcmfmac_6.6.y-nexmon/fwsignal.c
+index d58525e..a3d5030 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/fwsignal.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/fwsignal.c
+@@ -688,7 +688,7 @@ static void brcmf_fws_macdesc_set_name(struct brcmf_fws_info *fws,
+ 				       struct brcmf_fws_mac_descriptor *desc)
+ {
+ 	if (desc == &fws->desc.other)
+-		strlcpy(desc->name, "MAC-OTHER", sizeof(desc->name));
++		strscpy(desc->name, "MAC-OTHER", sizeof(desc->name));
+ 	else if (desc->mac_handle)
+ 		scnprintf(desc->name, sizeof(desc->name), "MAC-%d:%d",
+ 			  desc->mac_handle, desc->interface_id);
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/pcie.c b/patches/driver/brcmfmac_6.6.y-nexmon/pcie.c
+index d9c45c4..a6e447f 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/pcie.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/pcie.c
+@@ -13,7 +13,7 @@
+ #include <linux/bcma/bcma.h>
+ #include <linux/sched.h>
+ #include <linux/io.h>
+-#include <asm/unaligned.h>
++#include <linux/unaligned.h>
+ 
+ #include <soc.h>
+ #include <chipcommon.h>
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/sdio.c b/patches/driver/brcmfmac_6.6.y-nexmon/sdio.c
+index 32a9f78..136d720 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/sdio.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/sdio.c
+@@ -23,7 +23,7 @@
+ #include <linux/bcma/bcma.h>
+ #include <linux/debugfs.h>
+ #include <linux/vmalloc.h>
+-#include <asm/unaligned.h>
++#include <linux/unaligned.h>
+ #include <defs.h>
+ #include <brcmu_wifi.h>
+ #include <brcmu_utils.h>
+@@ -3213,7 +3213,7 @@ static int brcmf_debugfs_sdio_count_read(struct seq_file *seq, void *data)
+ 	return 0;
+ }
+ 
+-void brcmf_sdio_debugfs_create(struct device *dev)
++static void brcmf_sdio_debugfs_create(struct device *dev)
+ {
+ 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
+ 	struct brcmf_pub *drvr = bus_if->drvr;
+@@ -3238,7 +3238,7 @@ static int brcmf_sdio_checkdied(struct brcmf_sdio *bus)
+ 	return 0;
+ }
+ 
+-void brcmf_sdio_debugfs_create(struct device *dev)
++static void brcmf_sdio_debugfs_create(struct device *dev)
+ {
+ }
+ #endif /* DEBUG */
+@@ -4123,7 +4123,7 @@ brcmf_sdio_watchdog_thread(void *data)
+ static void
+ brcmf_sdio_watchdog(struct timer_list *t)
+ {
+-	struct brcmf_sdio *bus = from_timer(bus, t, timer);
++	struct brcmf_sdio *bus = timer_container_of(bus, t, timer);
+ 
+ 	if (bus->watchdog_tsk) {
+ 		complete(&bus->watchdog_wait);
+@@ -4147,7 +4147,7 @@ int brcmf_sdio_get_fwname(struct device *dev, const char *ext, u8 *fw_name,
+ 	};
+ 
+ 	if (board_specific) {
+-		strlcpy(board_ext, ".", BRCMF_FW_NAME_LEN);
++		strscpy(board_ext, ".", BRCMF_FW_NAME_LEN);
+ 		strlcat(board_ext, sdiodev->settings->board_type,
+ 			BRCMF_FW_NAME_LEN);
+ 		strlcat(board_ext, ext, BRCMF_FW_NAME_LEN);
+@@ -4294,7 +4294,7 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
+ 
+ 		switch (sdiod->func1->device) {
+ 		case SDIO_DEVICE_ID_BROADCOM_CYPRESS_4373:
+-		case SDIO_DEVICE_ID_BROADCOM_CYPRESS_43752:
++		case SDIO_DEVICE_ID_BROADCOM_43752:
+ 			brcmf_dbg(INFO, "set F2 watermark to 0x%x*4 bytes\n",
+ 				  CY_4373_F2_WATERMARK);
+ 			brcmf_sdiod_writeb(sdiod, SBSDIO_WATERMARK,
+@@ -4640,7 +4640,7 @@ void brcmf_sdio_wd_timer(struct brcmf_sdio *bus, bool active)
+ {
+ 	/* Totally stop the timer */
+ 	if (!active && bus->wd_active) {
+-		del_timer_sync(&bus->timer);
++		timer_delete_sync(&bus->timer);
+ 		bus->wd_active = false;
+ 		return;
+ 	}
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/usb.c b/patches/driver/brcmfmac_6.6.y-nexmon/usb.c
+index 9bf2dbd..83921ef 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/usb.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/usb.c
+@@ -1577,7 +1577,7 @@ static int brcmf_usb_reset_device(struct device *dev, void *notused)
+ 
+ void brcmf_usb_exit(void)
+ {
+-	struct device_driver *drv = &brcmf_usbdrvr.drvwrap.driver;
++	struct device_driver *drv = &brcmf_usbdrvr.driver;
+ 	int ret;
+ 
+ 	brcmf_dbg(USB, "Enter\n");
+diff --git a/patches/driver/brcmfmac_6.6.y-nexmon/xtlv.c b/patches/driver/brcmfmac_6.6.y-nexmon/xtlv.c
+index 3743125..397fed5 100644
+--- a/patches/driver/brcmfmac_6.6.y-nexmon/xtlv.c
++++ b/patches/driver/brcmfmac_6.6.y-nexmon/xtlv.c
+@@ -3,7 +3,7 @@
+  * Copyright (c) 2019 Broadcom
+  */
+ 
+-#include <asm/unaligned.h>
++#include <linux/unaligned.h>
+ #include <linux/math.h>
+ #include <linux/string.h>
+ #include <linux/bug.h>

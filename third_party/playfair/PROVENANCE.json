@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/FDH2/UxPlay",
+  "commit": "d4b7373cb6107b2d8d6c5838991c19d39e2b96ae",
+  "path": "lib/playfair",
+  "scope": "FairPlay media-key unwrap only",
+  "files": {
+    "playfair.c": "322077cfb1f4ca555c302ec4f4f718c7daa42fbb358f9c7738e95d522263b707",
+    "playfair.h": "5160ba53c5557f207d81998cc17a126ecb07842dc157c002ed54b397c536e613",
+    "omg_hax.c": "1bfdce59d4b462cf3b5c39f3d8b3f0f6a9c20eccf003128f972bcc7572f50823",
+    "omg_hax.h": "839517a07a208435bce0f789f3c7a3b10d698f65509fdb6a2e601249ac4e3e88",
+    "hand_garble.c": "cac6be5bb721e07d36d44577d112de63b40b8a12dd663495cd7cd600ab8743e4",
+    "modified_md5.c": "850c815fd99c9f8459e2ff323c25963e20873328b838cda33fff88400fba2667",
+    "sap_hash.c": "ec90021e184776e825582486588d3edf61f70b494bf74915e28bd6d37870a70d",
+    "LICENSE.md": "0b7cf235e6136b426f00870c3200bac308950973d062a733bdc3fc1eca36fa06"
+  }
+}

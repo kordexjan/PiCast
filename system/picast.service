@@ -1,0 +1,19 @@
+[Unit]
+Description=PiCast receiver
+# Not in maintenance mode (picast.txt on the SD card's boot partition): the Pi
+# then stays on its normal WLAN instead.
+RequiresMountsFor=/boot/firmware
+After=local-fs.target picast-power.service
+Wants=picast-power.service
+
+[Service]
+ExecCondition=/opt/picast/bin/picast config receiver
+ExecStart=/usr/bin/python3 /opt/picast/lib/picast_product.py run
+# The runner restarts the Pi itself when the radio does not come back.
+Restart=on-failure
+RestartSec=3
+# Video and sound before anything else on the Pi.
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

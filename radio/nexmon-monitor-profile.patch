@@ -1,0 +1,50 @@
+--- a/patches/bcm43436b0/9_88_4_65/nexmon/src/monitormode.c
++++ b/patches/bcm43436b0/9_88_4_65/nexmon/src/monitormode.c
+@@ -41,6 +41,7 @@
+ #include <helper.h>
+ #include "d11.h"
+ #include "brcm.h"
++#include "picast_monitor_profile.h"
+ 
+ //#define RADIOTAP_MCS
+ #include <ieee80211_radiotap.h>
+@@ -54,8 +55,26 @@
+ 
+ void
+ wl_monitor_radiotap(struct wl_info *wl, struct wl_rxsts *sts, struct sk_buff *p) {
+-    struct sk_buff *p_new = pkt_buf_get_skb(wl->wlc->osh, p->len + sizeof(struct nexmon_radiotap_header));
++    /* Optional AWDL monitor copies must not consume the shared RX pool. */
++    if (!wl || !wl->wlc || !wl->wlc->osh || !wl->wlc_hw || !sts || !p || !p->data ||
++        !pc_monitor_packet_length_valid(p->len)) return;
++    unsigned int packet_bytes = (unsigned int)p->len;
++    if (!pc_monitor_frame_allowed(p->data + 6, packet_bytes - 6)) return;
++    if (!wl->wlc->wlcif_list) return;
++    if (wl->wlc->wlcif_list->next) {
++        if (!wl->wlc->wlcif_list->wlif || !wl->wlc->wlcif_list->wlif->dev ||
++            !wl->wlc->wlcif_list->wlif->dev->chained ||
++            !wl->wlc->wlcif_list->wlif->dev->chained->funcs ||
++            !wl->wlc->wlcif_list->wlif->dev->chained->funcs->xmit) return;
++    } else {
++        if (!wl->dev || !wl->dev->chained || !wl->dev->chained->funcs ||
++            !wl->dev->chained->funcs->xmit) return;
++    }
++    unsigned int output_bytes = packet_bytes - 6 + sizeof(struct nexmon_radiotap_header);
++    struct sk_buff *p_new = PC_MONITOR_PRIMARY_ALLOC(wl->wlc->osh, output_bytes);
++    if (!p_new || p_new == p) return;
+     struct nexmon_radiotap_header *frame = (struct nexmon_radiotap_header *) p_new->data;
++    memset(frame, 0, sizeof(*frame));
+     struct tsf tsf;
+     wlc_bmac_read_tsf(wl->wlc_hw, &tsf.tsf_l, &tsf.tsf_h);
+     frame->header.it_version = 0;
+@@ -72,9 +91,9 @@
+     frame->chan_freq = wlc_phy_channel2freq(CHSPEC_CHANNEL(sts->chanspec));
+     frame->chan_flags = 0;
+     frame->dbm_antsignal = sts->signal;
+-    memcpy(p_new->data + sizeof(struct nexmon_radiotap_header), p->data + 6, p->len - 6);
++    memcpy(p_new->data + sizeof(struct nexmon_radiotap_header), p->data + 6, packet_bytes - 6);
+ 
+-    p_new->len -= 6;
++    p_new->len = (short)output_bytes;
+     
+     /*printf("wl:%p wl->wlc:%p wl->wlc->wlcif_list:%p wl->wlc->wlcif_list->next:%p\n", wl, wl->wlc, wl->wlc->wlcif_list, wl->wlc->wlcif_list->next);
+     printf("wl:%p wl->dev:%p wl->dev->chained:%p wl->dev->chained->funcs:%p wl->dev->chained->funcs->xmit:%p\n", wl, wl->dev, wl->dev->chained, wl->dev->chained->funcs, wl->dev->chained->funcs->xmit);*/

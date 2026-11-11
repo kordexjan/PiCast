@@ -1,0 +1,2 @@
+# PiCast: the start screen as soon as the display's framebuffer appears.
+ACTION=="add", SUBSYSTEM=="graphics", KERNEL=="fb0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="picast-boot-screen.service"

@@ -1,0 +1,12 @@
+[Unit]
+Description=PiCast start screen
+# Started by 90-picast-boot-screen.rules as soon as the display exists, long
+# before the receiver: the screen says the device is starting instead of
+# staying black. The boot partition is mounted first, for picast.txt.
+DefaultDependencies=no
+RequiresMountsFor=/boot/firmware
+
+[Service]
+Type=oneshot
+ExecCondition=/opt/picast/bin/picast config receiver
+ExecStart=/opt/picast/bin/picast ui starting
