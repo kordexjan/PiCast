@@ -38,6 +38,7 @@ DISPLAY_REPORT = Path("/boot/firmware/picast-display.txt")
 FRAMEBUFFER_SIZE = Path("/sys/class/graphics/fb0/virtual_size")
 FW_PATH = Path("/sys/module/firmware_class/parameters/path")
 SRCVERSION = Path("/sys/module/brcmfmac/srcversion")
+RFKILL = Path("/sys/class/rfkill")
 
 SESSION_SECONDS = 43200        # one connection may last 12 h
 LISTEN_SECONDS = 3
@@ -170,6 +171,19 @@ def radio_driver():
     return driver
 
 
+def unblock_radio(rfkill=RFKILL):
+    """Raspberry Pi OS keeps the WLAN switched off (RF-kill) until a WLAN country
+    is set, which the SD card image leaves out: PiCast needs no network. Lifts
+    that software block for the WLAN radio; it is not a regulatory setting."""
+    for switch in sorted(rfkill.glob("rfkill*")):
+        try:
+            if (switch / "type").read_text().strip() == "wlan" and (switch / "soft").read_text().strip() != "0":
+                (switch / "soft").write_text("0")
+                log("radio_unblocked", switch=switch.name)
+        except OSError as error:
+            raise RuntimeError(f"radio is switched off (rfkill) and cannot be switched on: {error}") from error
+
+
 def start_radio():
     driver = radio_driver()
     expected = sh("modinfo", "-F", "srcversion", driver).stdout.strip()
@@ -183,6 +197,7 @@ def start_radio():
         time.sleep(0.25)
     if SRCVERSION.read_text().strip() != expected:
         raise RuntimeError("unexpected radio driver")
+    unblock_radio()
     sh("iw", "dev", "wlan0", "interface", "add", "picastmon", "type", "monitor")
     address = stable_address(Path("/sys/class/net/picastmon/address").read_text().strip())
     sh("ip", "link", "set", "picastmon", "address", address)

@@ -46,6 +46,22 @@ class Radio(unittest.TestCase):
         self.assertTrue(product.radio_profile({6}, None))
         self.assertFalse(product.radio_profile({6}, False))         # what we knew
 
+    def test_unblock_only_the_blocked_wlan(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            for name, kind, soft in (("rfkill0", "wlan", "1"), ("rfkill1", "bluetooth", "1"), ("rfkill2", "wlan", "0")):
+                (root / name).mkdir()
+                (root / name / "type").write_text(kind + "\n")
+                (root / name / "soft").write_text(soft + "\n")
+            with mock.patch.object(product, "log") as log:
+                product.unblock_radio(root)
+            self.assertEqual((root / "rfkill0" / "soft").read_text(), "0")
+            self.assertEqual((root / "rfkill1" / "soft").read_text(), "1\n")    # Bluetooth stays off
+            self.assertEqual((root / "rfkill2" / "soft").read_text(), "0\n")    # not touched
+            log.assert_called_once_with("radio_unblocked", switch="rfkill0")
+            product.unblock_radio(root / "missing")                              # no switches: nothing to do
+
     def test_stable_address_is_local_and_fixed(self):
         address = product.stable_address("e4:5f:01:00:00:01")
         self.assertEqual(address, "e6:5f:01:00:00:81")
