@@ -80,7 +80,7 @@ def screen(name, text=None):
 
 def settings():
     """picast.txt as the receiver reads it (name, language, delay_ms, maintenance)."""
-    defaults = {"name": "PiCast", "language": "en", "delay_ms": 270, "maintenance": False, "warnings": []}
+    defaults = {"name": "PiCast", "language": "en", "delay_ms": 270, "country": "DE", "maintenance": False, "warnings": []}
     try:
         values = json.loads(picast("config", check=False, timeout=5).stdout)
     except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired):
@@ -184,11 +184,23 @@ def unblock_radio(rfkill=RFKILL):
             raise RuntimeError(f"radio is switched off (rfkill) and cannot be switched on: {error}") from error
 
 
-def start_radio():
+def set_country(country):
+    """The WLAN country, before the radio driver loads, as Raspberry Pi OS does
+    with cfg80211.ieee80211_regdom: the driver passes it on to the radio. Without
+    it the radio stays in its restricted worldwide mode, in which Apple devices
+    do not find PiCast."""
+    if not (isinstance(country, str) and len(country) == 2 and country.isascii() and country.isalpha()):
+        country = "DE"
+    sh("iw", "reg", "set", country.upper(), check=False, timeout=5)
+    log("radio_country", country=country.upper())
+
+
+def start_radio(country):
     driver = radio_driver()
     expected = sh("modinfo", "-F", "srcversion", driver).stdout.strip()
     FW_PATH.write_text(str(PRODUCT / "firmware") + "\n")
     unload_driver()
+    set_country(country)
     sh("insmod", driver, "picast_monitor=1")
     deadline = time.monotonic() + 20
     while not Path("/sys/class/net/wlan0").exists():
@@ -406,7 +418,7 @@ def run(seconds):
     display_report()
     sh("systemctl", "stop", "NetworkManager", "wpa_supplicant", check=False, timeout=20)
     screen("starting", "radio")
-    own = start_radio()
+    own = start_radio(config["country"])
     log("receiver_ready", name=config["name"], language=config["language"], delay_ms=config["delay_ms"])
     token = secrets.token_hex(16)
     band, avoid, knocked, radio_failures, listening = {}, None, None, 0, False
@@ -418,7 +430,7 @@ def run(seconds):
                 raise RuntimeError("radio keeps failing")
             screen("recovering")
             stop_radio()
-            own = start_radio()
+            own = start_radio(config["country"])
             listening = False
             continue
         if knocked:
@@ -446,7 +458,7 @@ def run(seconds):
         if stuck:
             screen("recovering")
             stop_radio()
-            own = start_radio()
+            own = start_radio(config["country"])
             listening = False
         else:
             radio_failures = 0

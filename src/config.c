@@ -12,6 +12,7 @@ void pc_config_defaults(struct pc_config *c) {
     strcpy(c->name, "PiCast");
     c->language = PC_LANGUAGE_EN;
     c->delay_ms = PC_CONFIG_DELAY_DEFAULT;
+    strcpy(c->country, PC_CONFIG_COUNTRY_DEFAULT);
 }
 
 /* Strict UTF-8: no overlong forms, surrogates or code points above U+10FFFF. */
@@ -77,6 +78,13 @@ static void apply(struct pc_config *c, unsigned line, const char *key, char *val
         if (end != value && end && (!*end || !strcasecmp(end, "ms")) && ms >= PC_CONFIG_DELAY_MIN && ms <= PC_CONFIG_DELAY_MAX)
             c->delay_ms = (unsigned)ms;
         else warn(c, line, "delay: 100 to 500 (milliseconds)");
+    } else if (!strcasecmp(key, "country")) {
+        /* Two letters; "00" (the worldwide mode) is what this setting avoids. */
+        if (strlen(value) == 2 && isalpha((unsigned char)value[0]) && isalpha((unsigned char)value[1])) {
+            c->country[0] = (char)toupper((unsigned char)value[0]);
+            c->country[1] = (char)toupper((unsigned char)value[1]);
+            c->country[2] = 0;
+        } else warn(c, line, "country: two letters, e.g. DE, AT, CH, GB, US");
     } else if (!strcasecmp(key, "maintenance")) {
         int on;
         if (!switch_value(value, &on)) c->maintenance = on;
@@ -171,8 +179,8 @@ int pc_config_command(int argc, char **argv) {
     if (argc != 2 && !(argc == 3 && !strcmp(argv[2], "show"))) return 2;
     printf("{\"name\":");
     json_string(c.name);
-    printf(",\"language\":\"%s\",\"delay_ms\":%u,\"maintenance\":%s,\"warnings\":[",
-           c.language == PC_LANGUAGE_DE ? "de" : "en", c.delay_ms, c.maintenance ? "true" : "false");
+    printf(",\"language\":\"%s\",\"delay_ms\":%u,\"country\":\"%s\",\"maintenance\":%s,\"warnings\":[",
+           c.language == PC_LANGUAGE_DE ? "de" : "en", c.delay_ms, c.country, c.maintenance ? "true" : "false");
     unsigned shown = c.warnings < 4 ? c.warnings : 4;
     for (unsigned i = 0; i < shown; i++) {
         if (i) putchar(',');

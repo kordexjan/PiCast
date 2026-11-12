@@ -94,6 +94,16 @@ class Settings(unittest.TestCase):
             values = self.config(broken)
             self.assertEqual((values["name"], values["delay_ms"], values["maintenance"]), ("PiCast", 270, False))
 
+    def test_country(self):
+        self.assertEqual(self.config('{"country":"AT"}')["country"], "AT")
+        self.assertEqual(self.config("")["country"], "DE")
+        calls = []
+        with mock.patch.object(product, "sh", side_effect=lambda *a, **k: calls.append(a)), \
+             mock.patch.object(product, "log"):
+            product.set_country("ch")
+            product.set_country("not a country")
+        self.assertEqual(calls, [("iw", "reg", "set", "CH"), ("iw", "reg", "set", "DE")])
+
     def test_session_environment(self):
         config = {"name": "Küche", "delay_ms": 300}
         env = product.session_environment(config, shares_band=True, size="2560x1080")

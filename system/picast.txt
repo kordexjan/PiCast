@@ -15,6 +15,10 @@ language = en
 # Lower feels quicker; raise it if the picture or sound stutters now and then.
 delay = 270
 
+# The country you use PiCast in, as two letters: DE, AT, CH, GB, US, FR, ...
+# The radio follows that country's WLAN rules; iPhones only find PiCast with one.
+country = DE
+
 # Maintenance mode: on starts the Pi as a normal Raspberry Pi with WLAN and SSH
 # instead of PiCast (for updates). Set it back to off for PiCast.
 maintenance = off

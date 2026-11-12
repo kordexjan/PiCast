@@ -35,6 +35,12 @@ int main(void) {
     assert(!strncmp(c.warning[0], "line 1: delay", 13));
     parse(&c, "delay = 100ms\nmaintenance = Yes\nLANGUAGE = Deutsch\n");
     assert(c.delay_ms == 100 && c.maintenance && c.language == PC_LANGUAGE_DE && !c.warnings);
+    parse(&c, "");
+    assert(!strcmp(c.country, "DE"));
+    parse(&c, "country = at # Austria\n");
+    assert(!strcmp(c.country, "AT") && !c.warnings);
+    parse(&c, "country = 00\ncountry = DEU\ncountry =\n");
+    assert(!strcmp(c.country, "DE") && c.warnings == 3 && !strncmp(c.warning[0], "line 1: country", 15));
     parse(&c, "maintenance = off\n");
     assert(!c.maintenance);
     /* The file itself: missing means defaults; the receiver name follows it. */

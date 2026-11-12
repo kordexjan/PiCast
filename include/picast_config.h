@@ -11,12 +11,17 @@
 #define PC_CONFIG_DELAY_DEFAULT 270 /* ms; r229/r231: smooth with a little margin */
 #define PC_CONFIG_DELAY_MIN 100
 #define PC_CONFIG_DELAY_MAX 500
+/* WLAN country (ISO 3166 code). Without one, the radio stays in a restricted
+ * worldwide mode in which Apple devices do not find PiCast. PiCast transmits
+ * only on 2.4 GHz channel 6, which every country allows. */
+#define PC_CONFIG_COUNTRY_DEFAULT "DE"
 
 enum pc_language { PC_LANGUAGE_EN, PC_LANGUAGE_DE };
 struct pc_config {
     char name[PC_CONFIG_NAME_MAX + 1];
     enum pc_language language;
     unsigned delay_ms;
+    char country[3];                   /* two capital letters */
     int maintenance;
     unsigned warnings;                 /* lines that were ignored */
     char warning[4][96];               /* the first few, for `picast config` */

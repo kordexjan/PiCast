@@ -107,6 +107,7 @@ with any text editor. Save, put the card back, switch the Pi on.
 name = PiCast        # the name in the Screen Mirroring list (up to 40 characters)
 language = en        # screens in English (en) or German (de)
 delay = 270          # picture and sound delay in ms (100-500); raise it if playback stutters
+country = DE         # the country you use PiCast in (two letters: DE, AT, CH, GB, US, ...)
 maintenance = off    # on: start as a normal Raspberry Pi with Wi-Fi and SSH (see below)
 ```
 
@@ -150,7 +151,7 @@ one, so the radio keeps working.
 
 | Problem | What to do |
 | --- | --- |
-| PiCast does not show up in the list | Wait until the TV shows "Open Screen Mirroring…". Close the list and open it again. Bring the device closer to the Pi. |
+| PiCast does not show up in the list | Wait until the TV shows "Open Screen Mirroring…". Close the list and open it again. Bring the device closer to the Pi. Check that `country` in `picast.txt` is two letters. |
 | The connection drops right after the code | Try again; the second attempt usually works. |
 | The picture stutters | Move closer; avoid walls or metal between the device and the Pi. Try `delay = 350` in `picast.txt`. |
 | Picture stretched or wrong resolution | The **bootfs** drive has a file `picast-display.txt` with what your screen reports. Please attach it to a [GitHub issue](../../issues). |
